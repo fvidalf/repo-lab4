@@ -33,7 +33,10 @@ public:
   }
 
   void add(uint64_t key) {
-    // TODO: implement
+    for (size_t i = 0; i < num_hashes; ++i) {
+      size_t index = hash(key, i);
+      bits[index] = true;
+    }
   }
 
   void clear() {
@@ -41,7 +44,12 @@ public:
   }
 
   bool might_contain(uint64_t key) const {
-    // TODO: implement
+    for (size_t i = 0; i < num_hashes; ++i) {
+      size_t index = hash(key, i);
+      if (!bits[index]) {
+        return false;
+      }
+    }
     return true;
   }
 

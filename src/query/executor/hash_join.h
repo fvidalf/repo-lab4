@@ -51,5 +51,10 @@ private:
 
   BloomFilter bloom_filter;
 
+  // State for handling multiple matches
+  std::unordered_map<Record, std::vector<Record>>::iterator current_hash_entry;
+  std::vector<Record>::iterator current_match_iter;
+  bool hash_entry_valid = false;
+
   void fill();
 };

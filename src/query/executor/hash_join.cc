@@ -61,14 +61,14 @@ HashJoin::HashJoin(
 void HashJoin::begin() {
   lhs->begin();
   rhs->begin();
-
+  hash_entry_valid = false;
   fill();
 }
 
 void HashJoin::reset() {
   lhs->reset();
   rhs->reset();
-
+  hash_entry_valid = false;
   hash_table.clear();
   fill();
 }
@@ -89,45 +89,71 @@ void HashJoin::fill() {
     }
 
     Record join_record(std::move(lhs_join_values));
+    uint64_t join_hash = join_record.hash();
+    bloom_filter.add(join_hash);
 
     // hash_table.emplace creates a new tuple only if the key was not in the map
     // if the key was on the map, nothing is inserted but we get the pointer to the
     // record (it is the iterator that points to that record)
     auto&& [it, _] = hash_table.emplace(std::move(join_record), std::vector<Record>());
+
     it->second.push_back(Record(std::move(lhs_nonjoin_values)));
   }
 }
 
 bool HashJoin::next() {
-  while (rhs->next()) {
-    std::vector<Value> rhs_join_values;
-    for (const auto& join_rhs_column : join_rhs_columns) {
-      rhs_join_values.push_back(*rhs_out.values[join_rhs_column.pos]);
-    }
-    Record rhs_key(std::move(rhs_join_values));
-
-    if (!bloom_filter.might_contain(rhs_key.hash())) {
-      continue;
-    }
-
-    auto it = hash_table.find(rhs_key);
-    if (it != hash_table.end()) {
-      const Record& current_key = it->first;
-      auto current_vector = &it->second;
-      auto vector_iter = current_vector->begin();
-
-      for (size_t i = 0; i < join_lhs_columns.size(); i++) {
-        lhs_buffer->values[i] = current_key.values[i];
+  // If we have a valid hash entry but exhausted all matches, reset state
+  if (hash_entry_valid && current_match_iter == current_hash_entry->second.end()) {
+    hash_entry_valid = false;
+  }
+  
+  // If we don't have a valid hash entry, find the next matching right row
+  if (!hash_entry_valid) {
+    while (rhs->next()) {
+      std::vector<Value> rhs_join_values;
+      for (const auto& join_rhs_column : join_rhs_columns) {
+        rhs_join_values.push_back(*rhs_out.values[join_rhs_column.pos]);
       }
-      size_t offset = join_lhs_columns.size();
-      for (size_t i = 0; i < nonjoin_lhs_columns.size(); i++) {
-        lhs_buffer->values[i + offset] = vector_iter->values[i];
+      Record rhs_key(std::move(rhs_join_values));
+      
+      if (!bloom_filter.might_contain(rhs_key.hash())) {
+        continue;
       }
-      vector_iter++;
-      return true;
+      
+      auto it = hash_table.find(rhs_key);
+      if (it != hash_table.end() && !it->second.empty()) {
+        // Found a match, set up state for iteration
+        current_hash_entry = it;
+        current_match_iter = it->second.begin();
+        hash_entry_valid = true;
+        break;
+      }
+    }
+    
+    // If we couldn't find another match, we're done
+    if (!hash_entry_valid) {
+      return false;
     }
   }
-  return false;
+  
+  // At this point, we have a valid hash entry and a valid iterator
+  // Produce the output row
+  const Record& current_key = current_hash_entry->first;
+  
+  // Copy join column values
+  for (size_t i = 0; i < join_lhs_columns.size(); i++) {
+    lhs_buffer->values[i] = current_key.values[i];
+  }
+  
+  // Copy non-join column values
+  size_t offset = join_lhs_columns.size();
+  for (size_t i = 0; i < nonjoin_lhs_columns.size(); i++) {
+    lhs_buffer->values[i + offset] = current_match_iter->values[i];
+  }
+  
+  // Advance the iterator for next call
+  current_match_iter++;
+  return true;
 }
 
 RecordRef& HashJoin::get_output() {
