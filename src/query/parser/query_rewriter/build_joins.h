@@ -85,8 +85,8 @@ public:
 
       if (join_children.size() > 1) {
         // TODO: change to test selinger optimizer
-        // auto join_order = JoinOptimizer::greedy(std::move(join_children), current_join_columns);
-        auto join_order = JoinOptimizer::selinger(std::move(join_children), current_join_columns);
+        auto join_order = JoinOptimizer::greedy(std::move(join_children), current_join_columns);
+        // auto join_order = JoinOptimizer::selinger(std::move(join_children), current_join_columns);
         groups.push_back(std::make_unique<JoinPlan>(std::move(join_order), std::move(current_join_columns)));
       } else {
         groups.push_back(std::move(join_children[0]));

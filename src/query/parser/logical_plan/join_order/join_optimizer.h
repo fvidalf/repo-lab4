@@ -142,9 +142,11 @@ public:
 
     size_t n = relation_estimators.size();
 
+    // For a given size from 3 to n...
     for (size_t size = 3; size <= n; size++) {
       auto subsets = generateSubsetsOfSize(n, size);
       
+      // ... iterate over all subsets of this size
       for (SubsetID S : subsets) {
         double best_cost = std::numeric_limits<double>::infinity();
         std::unique_ptr<JoinEstimator> best_plan = nullptr;
